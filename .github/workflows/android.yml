@@ -1,0 +1,54 @@
+name: Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Copiar o app web para dentro do APK
+        run: |
+          mkdir -p android/app/src/main/assets
+          cp index.html android/app/src/main/assets/index.html
+
+      - name: Compilar APK
+        working-directory: android
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Renomear APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk Deixa-Teleprompter.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Deixa-Teleprompter-apk
+          path: Deixa-Teleprompter.apk
+
+      - name: Publicar na página de Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Deixa Teleprompter 1.0.${{ github.run_number }}
+          body: |
+            Baixe **Deixa-Teleprompter.apk** abaixo pelo celular e instale.
+            Se o Android pedir, permita instalar apps desta fonte.
+          files: Deixa-Teleprompter.apk
+          make_latest: true

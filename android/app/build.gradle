@@ -1,0 +1,37 @@
+plugins { id 'com.android.application' }
+
+def buildNum = (System.getenv("BUILD_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'br.com.deixa.teleprompter'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'br.com.deixa.teleprompter'
+        minSdk 24
+        targetSdk 34
+        versionCode buildNum
+        versionName "1.0." + buildNum
+    }
+    signingConfigs {
+        release {
+            storeFile file('deixa.keystore')
+            storePassword 'deixa-tp-2026'
+            keyAlias 'deixa'
+            keyPassword 'deixa-tp-2026'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

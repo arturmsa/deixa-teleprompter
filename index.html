@@ -244,6 +244,7 @@ input[type=range]{width:100%;accent-color:var(--cue);height:28px}
 (function(){
 "use strict";
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const APP=window.DeixaAndroid||null;
 const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 
 const I={
@@ -443,6 +444,16 @@ function onSpeech(text){
   if(best>=words.length-1)voiceTarget=maxPos;
 }
 function startVoice(){
+  if(APP){
+    if(recogOn)return;recogOn=true;syncVoiceToPos();
+    window.__deixaSpeech=t=>{if(recogOn)onSpeech(t)};
+    window.__deixaSpeechErr=c=>{recogOn=false;
+      if(c==='not-allowed')toast('Permita o microfone para a rolagem por voz',2400);
+      else if(c==='audio-capture'){toast('Microfone ocupado pela gravação neste aparelho. Use a velocidade fixa.',3200);S.voice=false;saveS();applyStyle()}
+      else if(c==='unavailable'){toast('Reconhecimento de voz indisponível neste aparelho',2600);S.voice=false;saveS();applyStyle()}};
+    try{APP.startSpeech('pt-BR')}catch(e){recogOn=false}
+    return;
+  }
   if(!SR){toast('Este navegador não tem reconhecimento de voz. Use o Chrome.',2600);S.voice=false;saveS();applyStyle();return}
   if(recogOn)return;
   recog=new SR();recog.lang='pt-BR';recog.continuous=true;recog.interimResults=true;
@@ -453,7 +464,7 @@ function startVoice(){
   recogOn=true;syncVoiceToPos();
   try{recog.start()}catch(e){}
 }
-function stopVoice(){recogOn=false;if(recog){try{recog.stop()}catch(e){}}}
+function stopVoice(){if(APP){recogOn=false;try{APP.stopSpeech()}catch(e){}return}recogOn=false;if(recog){try{recog.stop()}catch(e){}}}
 
 /* ---------- Câmera ---------- */
 const cam=$('#cam');
@@ -516,8 +527,21 @@ function stopRec(){
 const extOf=t=>t.includes('mp4')?'mp4':'webm';
 function fileName(k){const d=k.at;const p=n=>String(n).padStart(2,'0');
   return 'deixa-'+d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'.'+extOf(k.type)}
+const blobB64=b=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=rej;r.readAsDataURL(b)});
+let saving=false;
 async function saveTake(i){
   const k=takes[i];if(!k)return;const name=fileName(k);
+  if(APP){
+    if(saving)return;saving=true;toast('Salvando na galeria...',20000);
+    try{const id=APP.startSave(name,k.type);const CH=768*1024;
+      for(let o=0;o<k.blob.size;o+=CH){const b=await blobB64(k.blob.slice(o,o+CH));if(!APP.appendSave(id,b))throw new Error('w')}
+      const r=String(APP.finishSave(id,name,k.type));
+      if(r.startsWith('ok'))toast('Salvo na galeria, pasta Filmes/Deixa',2800);
+      else if(r==='err:perm')toast('Permita o armazenamento e toque em salvar de novo',3200);
+      else toast('Não foi possível salvar o vídeo',2600);
+    }catch(e){toast('Não foi possível salvar o vídeo',2600)}
+    saving=false;return;
+  }
   try{const f=new File([k.blob],name,{type:k.type});
     if(navigator.canShare&&navigator.canShare({files:[f]})){await navigator.share({files:[f],title:name});return}}catch(e){if(e&&e.name==='AbortError')return}
   const a=document.createElement('a');a.href=k.url;a.download=name;document.body.appendChild(a);a.click();a.remove();toast('Download iniciado: '+name,2400);
@@ -562,7 +586,7 @@ const SCHEMA=[
  {sec:'Rolagem'},
  {k:'gapPause',l:'Pausa nas linhas em branco',t:'range',min:0,max:4,step:.5,f:v=>+v?(+v).toString().replace('.',',')+' s':'Desligada'},
  {k:'wpm',l:'Ritmo para estimar a duração',t:'range',min:90,max:220,step:5,f:v=>v+' palavras/min'},
- {k:'voice',l:'Rolagem por voz',t:'tg',h:'O texto acompanha sua fala em português. Precisa de internet e do Chrome. Em alguns celulares o microfone não pode ser usado pela voz e pela gravação ao mesmo tempo.'},
+ {k:'voice',l:'Rolagem por voz',t:'tg',h:'O texto acompanha sua fala em português. Precisa de internet. Em alguns celulares o microfone não pode ser usado pela voz e pela gravação ao mesmo tempo.'},
  {k:'countdown',l:'Contagem regressiva',t:'seg',o:[[0,'Sem'],[3,'3 s'],[5,'5 s'],[10,'10 s']]},
  {sec:'Câmera'},
  {k:'facing',l:'Câmera',t:'seg',o:[['user','Frontal'],['environment','Traseira']],cam:1},
@@ -599,7 +623,7 @@ function buildSettings(){
     if(it.h){const s=document.createElement('small');s.textContent=it.h;f.appendChild(s)}
     b.appendChild(f);
   });
-  const k=document.createElement('div');k.innerHTML='<div class="sec">Controle remoto e teclado</div><div class="keys"><kbd>Espaço</kbd> rolar ou pausar · <kbd>↑</kbd> <kbd>↓</kbd> velocidade · <kbd>←</kbd> <kbd>→</kbd> ou <kbd>PgUp</kbd> <kbd>PgDn</kbd> voltar ou avançar linhas · <kbd>R</kbd> gravar · <kbd>Home</kbd> início. Funciona com controles Bluetooth de apresentação.</div>';
+  const k=document.createElement('div');k.innerHTML='<div class="sec">Controle remoto e teclado</div><div class="keys"><kbd>Espaço</kbd> rolar ou pausar · <kbd>↑</kbd> <kbd>↓</kbd> velocidade · <kbd>←</kbd> <kbd>→</kbd> ou <kbd>PgUp</kbd> <kbd>PgDn</kbd> voltar ou avançar linhas · <kbd>R</kbd> gravar · <kbd>Home</kbd> início. Funciona com controles Bluetooth de apresentação.'+(APP?' No app, o botão de volume + rola ou pausa e o volume − volta duas linhas.':'')+'</div>';
   b.appendChild(k);
   const rb=document.createElement('div');rb.className='row-btns';const r=document.createElement('button');r.className='btn';r.textContent='Restaurar padrão';
   r.onclick=()=>{S=Object.assign({},DEF);saveS();buildSettings();applyStyle();startCam();toast('Definições restauradas')};rb.appendChild(r);b.appendChild(rb);
@@ -685,11 +709,14 @@ document.addEventListener('keydown',e=>{
 /* ---------- Tela sempre ligada ---------- */
 let lock=null;
 async function wake(){try{if('wakeLock' in navigator&&!lock){lock=await navigator.wakeLock.request('screen');lock.addEventListener('release',()=>lock=null)}}catch(e){}}
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')wake();else if(recording)toast('Gravação continua em segundo plano só se o navegador permitir',2400)});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){wake();if(APP&&playing&&S.voice)setTimeout(startVoice,400)}else if(recording)toast('Gravação continua em segundo plano só se o navegador permitir',2400)});
 window.addEventListener('resize',()=>requestAnimationFrame(measure));
 window.addEventListener('orientationchange',()=>setTimeout(measure,300));
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(measure);
 
+window.__deixaBack=()=>{if($$('.sheet.show').length){closeSheets();return true}if(recording){toast('Pare a gravação antes de sair',2000);return true}return false};
+window.__deixaKey=k=>{if($$('.sheet.show').length)return;if(k==='toggle')setPlaying(!playing);else if(k==='back')jump(-2)};
+if(APP)$('#fullBtn').hidden=true;
 applyStyle();renderScript();startCam();
 document.addEventListener('pointerdown',wake,{once:true});
 })();
