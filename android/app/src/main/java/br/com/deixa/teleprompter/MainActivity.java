@@ -193,7 +193,7 @@ public class MainActivity extends Activity {
             recognizer = SpeechRecognizer.createSpeechRecognizer(this);
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override public void onReadyForSpeech(Bundle b) { }
-                @Override public void onBeginningOfSpeech() { }
+                @Override public void onBeginningOfSpeech() { js("window.__deixaHeard&&window.__deixaHeard()"); }
                 @Override public void onRmsChanged(float v) { }
                 @Override public void onBufferReceived(byte[] b) { }
                 @Override public void onEndOfSpeech() { }

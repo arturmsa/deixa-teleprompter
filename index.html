@@ -20,7 +20,7 @@
   --f-display:"Bricolage Grotesque","Atkinson Hyperlegible",system-ui,sans-serif;
   --tb:calc(58px + env(safe-area-inset-top,0px));
   --bb:calc(132px + env(safe-area-inset-bottom,0px));
-  --fs:36px; --lh:1.35; --mg:6%; --ta:left; --tc:#ffffff; --bgop:.55; --ph:42; --gy:22%;
+  --fs:30px; --lh:1.35; --mg:6%; --ta:left; --tc:#ffffff; --bgop:.55; --ph:24; --gy:30%;
   color-scheme:dark;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -74,6 +74,7 @@ svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 #tools button{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:rgba(20,22,26,.72);border:1px solid rgba(255,255,255,.14)}
 #tools button svg{width:20px;height:20px}
 #tools button.on{background:var(--cue);color:#14110a;border-color:var(--cue)}
+#tools button.hear{box-shadow:0 0 0 4px rgba(245,184,61,.45),0 0 18px rgba(245,184,61,.7)}
 
 /* Barra inferior */
 #bottom{position:absolute;left:0;right:0;bottom:0;height:var(--bb);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(12px,env(safe-area-inset-left,0px));padding-right:max(12px,env(safe-area-inset-right,0px));display:grid;grid-template-columns:1fr auto 1fr;align-items:center;background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.45))}
@@ -275,9 +276,11 @@ $('#edDel').innerHTML=ic('trash')+'Excluir';
 $('#revSave').innerHTML=ic('save')+'Salvar no aparelho';
 
 /* ---------- Estado ---------- */
-const DEF={fs:36,lh:1.35,mg:6,align:'left',color:'#ffffff',bgop:.55,ph:42,gy:22,mirrorH:false,mirrorV:false,
+const COMPACT={fs:30,lh:1.3,mg:12,align:'center',ph:24,gy:30};
+const DEF={fs:30,lh:1.3,mg:12,align:'center',color:'#ffffff',bgop:.55,ph:24,gy:30,mirrorH:false,mirrorV:false,
   countdown:3,gapPause:1,speed:1.5,grid:true,facing:'user',res:'1080',mirrorPreview:true,camOff:false,voice:false,wpm:150};
 let S=Object.assign({},DEF,store.get('deixa.settings',{}));
+if((S.v||1)<2){Object.assign(S,COMPACT);S.v=2;try{localStorage.setItem('deixa.settings',JSON.stringify(S))}catch(e){}}
 const saveS=()=>store.set('deixa.settings',S);
 
 const SAMPLE={id:'demo',title:'Exemplo: dicas para gravar',updated:Date.now(),body:
@@ -371,7 +374,7 @@ function applyStyle(){
   requestAnimationFrame(measure);
 }
 function updateSpeedLbl(){
-  $('#speedLbl').textContent=S.voice?'Rolagem por voz':'Velocidade '+(+S.speed).toFixed(2).replace(/\.?0+$/,'')+'x';
+  $('#speedLbl').textContent=(S.voice?'Voz · ':'Velocidade ')+(+S.speed).toFixed(2).replace(/\.?0+$/,'')+'x';
 }
 
 /* ---------- Loop de rolagem ---------- */
@@ -384,25 +387,31 @@ function draw(){
 function loop(t){
   const dt=lastT?Math.min(.1,(t-lastT)/1000):0;lastT=t;
   if(playing&&!drag.on){
-    if(S.voice){
+    if(S.voice&&recording){
+      const talking=vadTick(dt);hearing(talking);
+      if(talking)pos+=pxPerSec()*dt;
+    }else if(S.voice){
       pos+=(voiceTarget-pos)*Math.min(1,dt*5);
+      hearing(performance.now()-lastHeard<700);
+      if(!warnedDeaf&&performance.now()-playStart>7000&&!lastHeard){warnedDeaf=true;toast('Não estou ouvindo. Fale em voz alta ou verifique a internet.',3200)}
     }else if(performance.now()>=holdUntil){
       const prev=pos;pos+=pxPerSec()*dt;
       if(S.gapPause>0){for(const g of gaps){if(prev<g&&pos>=g){pos=g;holdUntil=performance.now()+S.gapPause*1000;break}}}
     }
-    if(pos>=maxPos){pos=maxPos;if(!S.voice){setPlaying(false);if(!recording)toast('Fim do roteiro')}}
+    if(pos>=maxPos){pos=maxPos;if(!S.voice||recording){setPlaying(false);if(!recording)toast('Fim do roteiro')}}
   }
   if(recording)$('#recClock').textContent=clock(Date.now()-recStart);
   draw();requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
+let lastHeard=0,playStart=0,warnedDeaf=false;
+function hearing(on){$('#tVoice').classList.toggle('hear',!!on&&S.voice)}
 function setPlaying(v){
   playing=v;holdUntil=0;setIc($('#playBtn'),v?'pause':'play');
-  if(v){if(pos>=maxPos){pos=0;resetVoice()}wake();if(S.voice)startVoice()}
-  else stopVoice();
+  if(v){if(pos>=maxPos){pos=0;resetVoice()}wake();playStart=performance.now();lastHeard=0;warnedDeaf=false;if(S.voice&&!recording)startVoice()}
+  else{stopVoice();hearing(false)}
 }
 function changeSpeed(d){
-  if(S.voice){toast('Desligue a rolagem por voz para usar velocidade fixa');return}
   S.speed=Math.max(.25,Math.min(6,Math.round((S.speed+d)*100)/100));saveS();updateSpeedLbl();
   toast('Velocidade: '+(+S.speed).toFixed(2).replace(/\.?0+$/,'')+'x');
 }
@@ -427,6 +436,7 @@ function syncVoiceToPos(){
 }
 const sim=(a,b)=>a===b||(a.length>=4&&b.length>=4&&a.slice(0,4)===b.slice(0,4))||(a.length>=3&&b.length>=3&&(a.startsWith(b)||b.startsWith(a)));
 function onSpeech(text){
+  lastHeard=performance.now();
   const sp=text.split(/\s+/).map(norm).filter(Boolean).slice(-5);if(!sp.length)return;
   const last=sp[sp.length-1];let best=-1,bestScore=0;
   const from=Math.max(0,voiceIdx-3),to=Math.min(words.length,voiceIdx+40);
@@ -444,9 +454,11 @@ function onSpeech(text){
   if(best>=words.length-1)voiceTarget=maxPos;
 }
 function startVoice(){
+  if(recording)return;
   if(APP){
     if(recogOn)return;recogOn=true;syncVoiceToPos();
     window.__deixaSpeech=t=>{if(recogOn)onSpeech(t)};
+    window.__deixaHeard=()=>{lastHeard=performance.now()};
     window.__deixaSpeechErr=c=>{recogOn=false;
       if(c==='not-allowed')toast('Permita o microfone para a rolagem por voz',2400);
       else if(c==='audio-capture'){toast('Microfone ocupado pela gravação neste aparelho. Use a velocidade fixa.',3200);S.voice=false;saveS();applyStyle()}
@@ -478,9 +490,7 @@ async function startCam(){
     camMsg('Câmera indisponível','Abra o app por um endereço https (ex.: GitHub Pages) no Chrome para gravar. O teleprompter funciona normalmente.');applyStyle();return}
   const h=+S.res,w=Math.round(h*16/9);
   const v={facingMode:S.facing,width:{ideal:w},height:{ideal:h},frameRate:{ideal:30}};
-  const a={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
-  try{stream=await navigator.mediaDevices.getUserMedia({video:v,audio:a})}
-  catch(e){try{stream=await navigator.mediaDevices.getUserMedia({video:v});toast('Sem microfone: vídeo será gravado sem áudio',2600)}catch(e2){stream=null}}
+  try{stream=await navigator.mediaDevices.getUserMedia({video:v})}catch(e){stream=null}
   if(stream){cam.srcObject=stream;camMsg(null);try{await cam.play()}catch(e){}}
   else camMsg('Câmera bloqueada','Permita o acesso à câmera nas configurações do navegador e recarregue a página.');
   applyStyle();
@@ -497,25 +507,49 @@ function countdown(n){return new Promise(res=>{
   const it=setInterval(()=>{k--;if(k<=0){clearInterval(it);el.classList.remove('show');res()}else el.textContent=k},1000);
 })}
 let busy=false;
+const MIC={echoCancellation:true,noiseSuppression:true,autoGainControl:true};
+let micStream=null,actx=null,analyser=null,vadBuf=null,vadFloor=.01,vadLevel=0,speakingUntil=0;
+function stopMic(){if(micStream){micStream.getTracks().forEach(t=>t.stop());micStream=null}analyser=null}
+function startVAD(){
+  if(!micStream||!actx)return;
+  try{actx.resume();const src=actx.createMediaStreamSource(micStream);analyser=actx.createAnalyser();analyser.fftSize=1024;src.connect(analyser);vadBuf=new Float32Array(analyser.fftSize);vadFloor=.01}catch(e){analyser=null}
+}
+function vadTick(dt){
+  if(!analyser)return false;
+  analyser.getFloatTimeDomainData(vadBuf);let sum=0;for(let i=0;i<vadBuf.length;i++)sum+=vadBuf[i]*vadBuf[i];
+  const rms=Math.sqrt(sum/vadBuf.length);vadLevel=rms;
+  const thr=Math.max(.012,vadFloor*2.8);
+  if(rms>thr)speakingUntil=performance.now()+650;
+  else vadFloor+=(rms-vadFloor)*Math.min(1,dt*(rms<vadFloor?4:.6));
+  return performance.now()<speakingUntil;
+}
 async function recPressed(){
   if(busy)return;
   if(recording){stopRec();return}
+  if(!actx){try{actx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
+  if(actx&&actx.state==='suspended'){try{actx.resume()}catch(e){}}
   if(!stream){busy=true;await countdown(S.countdown);busy=false;setPlaying(true);return}
   const mime=pickMime();
   if(mime===null){toast('Este navegador não grava vídeo. Use o Chrome.',2600);return}
   busy=true;setPlaying(false);
-  await countdown(S.countdown);busy=false;
+  await countdown(S.countdown);
+  stopVoice();await new Promise(r=>setTimeout(r,APP?350:50));
+  try{micStream=await navigator.mediaDevices.getUserMedia({audio:MIC})}catch(e){micStream=null;toast('Sem microfone: vídeo será gravado sem áudio',2600)}
+  busy=false;
+  const recStream=new MediaStream([...stream.getVideoTracks(),...(micStream?micStream.getAudioTracks():[])]);
   chunks=[];
-  try{recorder=new MediaRecorder(stream,Object.assign(mime?{mimeType:mime}:{},{videoBitsPerSecond:+S.res>=2160?20e6:+S.res>=1080?8e6:5e6,audioBitsPerSecond:128000}))}
-  catch(e){toast('Não foi possível iniciar a gravação',2400);return}
+  try{recorder=new MediaRecorder(recStream,Object.assign(mime?{mimeType:mime}:{},{videoBitsPerSecond:+S.res>=2160?20e6:+S.res>=1080?8e6:5e6,audioBitsPerSecond:128000}))}
+  catch(e){stopMic();toast('Não foi possível iniciar a gravação',2400);return}
   recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
   recorder.onstop=()=>{
+    stopMic();
     const type=recorder.mimeType||mime||'video/webm';
     const blob=new Blob(chunks,{type});
     takes.push({blob,url:URL.createObjectURL(blob),dur:Date.now()-recStart,type,at:new Date(),script:cur().title});
     openReview(takes.length-1);
   };
   recorder.start(1000);recording=true;recStart=Date.now();
+  if(S.voice)startVAD();
   document.body.classList.add('recording');
   if(pos>=maxPos){pos=0;resetVoice()}
   setPlaying(true);
@@ -578,6 +612,7 @@ const SCHEMA=[
  {k:'align',l:'Alinhamento',t:'seg',o:[['left','Esquerda'],['center','Centro']]},
  {k:'color',l:'Cor do texto',t:'sw',o:['#ffffff','#ffe27a','#a6f0bd','#a8dcff','#ffb3c1']},
  {sec:'Área do roteiro'},
+ {t:'preset'},
  {k:'ph',l:'Altura da área de texto',t:'range',min:20,max:100,step:1,f:v=>v+'%',h:'Deixe o texto perto da lente para manter o olhar na câmera.'},
  {k:'bgop',l:'Escurecer atrás do texto',t:'range',min:0,max:1,step:.05,f:pct},
  {k:'gy',l:'Posição da linha de leitura',t:'range',min:5,max:70,step:1,f:v=>v+'%'},
@@ -586,7 +621,7 @@ const SCHEMA=[
  {sec:'Rolagem'},
  {k:'gapPause',l:'Pausa nas linhas em branco',t:'range',min:0,max:4,step:.5,f:v=>+v?(+v).toString().replace('.',',')+' s':'Desligada'},
  {k:'wpm',l:'Ritmo para estimar a duração',t:'range',min:90,max:220,step:5,f:v=>v+' palavras/min'},
- {k:'voice',l:'Rolagem por voz',t:'tg',h:'O texto acompanha sua fala em português. Precisa de internet. Em alguns celulares o microfone não pode ser usado pela voz e pela gravação ao mesmo tempo.'},
+ {k:'voice',l:'Rolagem por voz',t:'tg',h:'Ensaiando: o texto segue as palavras que você fala (precisa de internet). Gravando: o texto anda na velocidade escolhida enquanto você fala e para quando você se cala. O microfone brilha quando está ouvindo.'},
  {k:'countdown',l:'Contagem regressiva',t:'seg',o:[[0,'Sem'],[3,'3 s'],[5,'5 s'],[10,'10 s']]},
  {sec:'Câmera'},
  {k:'facing',l:'Câmera',t:'seg',o:[['user','Frontal'],['environment','Traseira']],cam:1},
@@ -599,6 +634,9 @@ function buildSettings(){
   const b=$('#setBody');b.innerHTML='';
   SCHEMA.forEach(it=>{
     if(it.sec){const s=document.createElement('div');s.className='sec';s.textContent=it.sec;b.appendChild(s);return}
+    if(it.t==='preset'){const f=document.createElement('div');f.className='field';
+      f.innerHTML='<button class="btn pri" id="s_compact">Texto compacto perto da lente</button><small>Poucas linhas, coluna estreita e centralizada logo abaixo da câmera, para o olhar não descer para o meio da tela.</small>';
+      f.querySelector('button').onclick=()=>{Object.assign(S,COMPACT);saveS();applyStyle();buildSettings();toast('Texto perto da lente')};b.appendChild(f);return}
     const f=document.createElement('div');f.className='field';
     const set=v=>{S[it.k]=v;saveS();applyStyle();if(it.cam)startCam();if(it.k==='voice'&&!v)stopVoice();if(it.k==='voice'&&v&&playing)startVoice()};
     if(it.t==='range'){
